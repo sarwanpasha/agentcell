@@ -1,0 +1,19 @@
+# Python 3.9+. Versions pinned to match the environment used for the paper.
+torch==2.5.1
+torchvision
+timm
+numpy
+pandas
+scipy
+scikit-learn
+scikit-image
+tifffile
+pyarrow
+opencv-python-headless
+h5py
+requests
+matplotlib
+# WS-DINO data pipeline depends on the 1.x augmentation API:
+albumentations==1.3.1
+# avoids a pandas_flavor clash observed with newer releases:
+pyjanitor==0.31.0

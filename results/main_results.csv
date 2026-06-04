@@ -1,0 +1,13 @@
+configuration,backbone,channels,normalization,epochs_per_channel,NSC,NSCB,source
+F5,resnet50,DAPI,plain,0,0.7573,0.5437,fixed_baseline
+F4,vit_imagenet,DAPI,plain,0,0.7379,0.5825,fixed_baseline
+F3,resnet50,all_three,plain,0,0.8835,0.6699,fixed_baseline
+F2,vit_imagenet,all_three,per_channel_l2,0,0.9029,0.7087,fixed_baseline
+F1,vit_imagenet,all_three,plain,0,0.9126,0.6990,fixed_baseline
+agent_main,vit_trained,all_three,per_channel_l2,100,0.9709,0.7670,agent_seed0
+agent_main_plain,vit_trained,all_three,plain,100,0.9320,0.8058,agent_seed0
+agent_seed1,vit_trained,all_three,per_channel_l2,100,0.9515,0.7767,seed_study
+agent_seed2,vit_trained,all_three,per_channel_l2,100,0.9515,0.7767,seed_study
+agent_seed3,vit_trained,all_three,per_channel_l2,100,0.9612,0.7670,seed_study
+planner_gpt55,vit_trained,all_three,per_channel_l2,400,0.9417,0.7767,planner_study
+reference_hand,vit_trained,all_three,per_channel_l2,400,0.9709,0.7770,expert_reference
