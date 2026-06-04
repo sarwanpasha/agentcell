@@ -159,6 +159,3 @@ These are credited in full in the paper and in `CITATION.cff`.
 
 Code in this repository is released under the MIT License (see `LICENSE`). The released JSON trajectories and result tables are released under CC BY 4.0. Upstream WS-DINO code and the BBBC021 dataset retain their own respective licenses and are not redistributed here.
 
-## Citing
-
-If you use this code, the harness, or the released trajectories, please cite the paper as described in `CITATION.cff`.
