@@ -1,7 +1,7 @@
 # Released decision trajectories
 
 Each subdirectory contains the complete, unedited record of one run reported in
-the paper. These are the agent's own logs, copied verbatim from the run output
+these experiments. These are the agent's own logs, copied verbatim from the run output
 directories.
 
 ## Files in each run directory
