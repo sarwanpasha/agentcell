@@ -1,6 +1,6 @@
 # Reproducing the results
 
-This guide reproduces every result in the paper. It assumes a Linux machine with at least one CUDA GPU (the paper used a single NVIDIA GH200 per job) and a SLURM scheduler for the long-running training jobs. Single-GPU workstations work too; only wall-clock differs.
+This guide reproduces every reported result. It assumes a Linux machine with at least one CUDA GPU (the primary runs used a single NVIDIA GH200 per job) and a SLURM scheduler for the long-running training jobs. Single-GPU workstations work too; only wall-clock differs.
 
 ## 0. Environment variables
 
@@ -35,6 +35,7 @@ Download BBBC021 from the Broad Bioimage Benchmark Collection. Then preprocess r
 ```bash
 python scripts/preprocess_bbbc021.py \
     --raw-dir /path/to/bbbc021/raw \
+    --wsdino-repo $WSDINO_REPO \
     --out-dir $AGENTCELL_DATA
 ```
 
@@ -93,12 +94,8 @@ for S in 1 2 3; do sbatch --export=ALL,SEED=$S slurm/seed_retrain.sbatch; done
 
 ## 7. Scoring trained checkpoints unambiguously
 
-When several trained variants of a channel exist (e.g. compound and MoA), point the embed tool at a directory containing only the intended per-channel checkpoints (one subdirectory per channel) via `--init-dir`, so the per-channel resolver cannot pick the wrong file. This is the procedure used for the planner and seed scoring in the paper.
+When several trained variants of a channel exist (e.g. compound and MoA), point the embed tool at a directory containing only the intended per-channel checkpoints (one subdirectory per channel) via `--init-dir`, so the per-channel resolver cannot pick the wrong file. This is the procedure used for all planner and seed scoring; `cloud/sb_score_seed.sbatch` builds such a directory of links to the final checkpoints automatically.
 
-## 8. Figures
+## 8. Cloud studies
 
-```bash
-python scripts/make_figures.py     # writes Figures/*.pdf and *.png
-```
-
-All figures are generated from the numbers in `results/main_results.csv` and `results/seed_variance.csv`.
+The multi-seed, checkpoint and single-channel studies on a second cluster were run with the scripts in `cloud/` (see `cloud/README.md`). Their results are in `results/site_b_*.csv`.
