@@ -9,7 +9,7 @@ mode lets the agent poll for completion and obtain the produced checkpoint path.
 
 Consequential decisions exposed to the agent:
   --weak-label {compound, moa, treatment, none}
-        The WS-DINO weak supervision signal. 'compound' is the paper's choice;
+        The WS-DINO weak supervision signal. 'compound' is the default;
         the agent may explore alternatives and discover their effect.
   --channel {DAPI, Tubulin, Actin}
         Which channel's model to train (per-channel architecture).
@@ -173,7 +173,7 @@ def main():
                        "none": "Unique_Compounds"}[args.weak_label]
         # Warmups must not exceed total epochs (DINOLoss builds an array of
         # size epochs - warmup_teacher_temp_epochs). Scale them down for small
-        # epoch counts; at the full 400 these are the paper's values (10).
+        # epoch counts; at the full 400 these are the default values (10).
         warmup_tt = min(10, max(0, args.epochs - 1))
         warmup_lr = min(10, max(0, args.epochs - 1))
         # init checkpoint must be present in the output dir
