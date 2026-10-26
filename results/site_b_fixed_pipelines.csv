@@ -1,0 +1,6 @@
+configuration,backbone,channels,normalization,NSC,NSCB
+F1,vit_imagenet,all_three,plain,0.9126,0.7379
+F2,vit_imagenet,all_three,per_channel_l2,0.9223,0.6893
+F3,resnet50,all_three,plain,0.9223,0.6699
+F4,vit_imagenet,DAPI,plain,0.8058,0.6408
+F5,resnet50,DAPI,plain,0.7087,0.5437

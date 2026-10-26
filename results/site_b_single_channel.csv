@@ -1,0 +1,5 @@
+model,seed,NSC_DAPI,NSC_Tubulin,NSC_Actin
+vit_imagenet_untrained,-,0.806,0.845,0.718
+ep100,0,0.796,0.903,0.699
+ep100,1,0.845,0.864,0.660
+ep100,2,0.777,0.893,0.660
