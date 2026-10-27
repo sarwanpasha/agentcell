@@ -72,6 +72,9 @@ def setup_dist():
             init_method="env://", world_size=1, rank=0)
 
 
+LOADED = {}  # checkpoint path -> epoch stored in it
+
+
 def build_model(model_kind, ckpt_path):
     """Return an eval-ready feature extractor. For vit_trained, ckpt_path is the
     specific channel's trained checkpoint to load."""
@@ -96,24 +99,34 @@ def build_model(model_kind, ckpt_path):
             nk = k[len("module."):] if k.startswith("module.") else k
             if nk.startswith("backbone."):
                 bb[nk[len("backbone."):]] = v
-        m.load_state_dict(bb, strict=False)
+        missing, unexpected = m.load_state_dict(bb, strict=False)
+        missing = [k for k in missing if not k.startswith("head")]
+        if missing or unexpected:
+            raise RuntimeError(f"checkpoint {ckpt_path} does not match ViT-S/8: "
+                               f"missing={missing[:3]} unexpected={unexpected[:3]}")
+        LOADED[str(ckpt_path)] = int(ckpt.get("epoch", -1))
     m.eval().cuda()
     return m, model_kind, 384
 
 
-def resolve_channel_ckpt(init_dir, channel):
-    """Find a channel's trained checkpoint inside an init-dir.
+def resolve_channel_ckpt(init_dir, channel, weak_label=None, epoch=None):
+    """Return the checkpoint of one channel inside an init-dir, or None.
 
-    The agent's training writes to <run>/train_<CH>_<weak>/<CH>_weak_compound_
-    DINO_checkpoint.pth. We search init_dir recursively for a checkpoint whose
-    path names this channel."""
+    Training writes <dir>/train_<CH>_<weak>/<CH>_weak_compound_DINO_checkpoint.pth (final model)
+    and <CH>_weak_compound_DINO_checkpoint<NNNN>.pth snapshots, where NNNN + 1 is the number of
+    completed epochs. The same directory also holds pretrain_full_checkpoint.pth (the ImageNet
+    initialization), so files are matched by exact name rather than by pattern. If several weak
+    labels were trained for the channel, weak_label must be given."""
     from pathlib import Path as _P
-    cands = list(_P(init_dir).rglob("*checkpoint.pth"))
-    # prefer one whose train dir or filename names this channel
-    for c in cands:
-        if f"train_{channel}_" in str(c) or c.name.startswith(f"{channel}_"):
-            return str(c)
-    return None
+    dirs = sorted(d for d in _P(init_dir).glob(f"train_{channel}_*") if d.is_dir())
+    if weak_label:
+        dirs = [d for d in dirs if d.name == f"train_{channel}_{weak_label}"]
+    if len(dirs) != 1:
+        return None
+    name = (f"{channel}_weak_compound_DINO_checkpoint.pth" if epoch is None else
+            f"{channel}_weak_compound_DINO_checkpoint{int(epoch) - 1:04d}.pth")
+    f = dirs[0] / name
+    return str(f) if f.exists() else None
 
 
 def main():
@@ -137,6 +150,12 @@ def main():
     ap.add_argument("--run-train-artifacts", default=None,
                     help="JSON list of checkpoint paths this agent run has earned "
                          "via tool_train_ssl; --init must be among them")
+    ap.add_argument("--weak-label", default=None,
+                    help="weak label of the trained models to use when several were trained")
+    ap.add_argument("--epoch", type=int, default=None,
+                    help="use the snapshot saved after this many epochs instead of the final model")
+    ap.add_argument("--single-channel", choices=["DAPI", "Tubulin", "Actin"], default=None,
+                    help="embed only this channel")
     ap.add_argument("--tag", required=True)
     ap.add_argument("--features-out", required=True,
                     help="dir to write aggregated_features_<CH>_epoch_<tag>.csv")
@@ -163,9 +182,10 @@ def main():
             if args.init:
                 to_check.append(args.init)
             if args.init_dir:
-                chans = CHANNELS_ALL if args.channels == "all_three" else ["DAPI"]
+                chans = ([args.single_channel] if args.single_channel else
+                         CHANNELS_ALL if args.channels == "all_three" else ["DAPI"])
                 for ch in chans:
-                    ck = resolve_channel_ckpt(args.init_dir, ch)
+                    ck = resolve_channel_ckpt(args.init_dir, ch, args.weak_label)
                     if ck:
                         to_check.append(ck)
             bad = [c for c in to_check if c not in earned]
@@ -197,7 +217,8 @@ def main():
         weak_label_header="Unique_Compounds",
     )
 
-    channels = CHANNELS_ALL if args.channels == "all_three" else ["DAPI"]
+    channels = ([args.single_channel] if args.single_channel else
+                CHANNELS_ALL if args.channels == "all_three" else ["DAPI"])
     out_dir = Path(args.features_out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -207,10 +228,12 @@ def main():
     shared_model = None
     if args.model == "vit_trained" and args.init_dir:
         for ch in channels:
-            ck = resolve_channel_ckpt(args.init_dir, ch)
+            ck = resolve_channel_ckpt(args.init_dir, ch, args.weak_label, args.epoch)
             if not ck:
-                result["message"] = (f"no trained checkpoint for channel {ch} "
-                                     f"found under {args.init_dir}")
+                result["message"] = (f"no unique trained checkpoint for channel {ch} "
+                                     f"(weak_label={args.weak_label}, epoch={args.epoch}) "
+                                     f"under {args.init_dir}; if several weak labels were "
+                                     f"trained for this channel, pass weak_label")
                 emit(result, args.result_out)
             per_channel_ckpt[ch] = ck
     else:
@@ -257,6 +280,8 @@ def main():
     result["status"] = "ok"
     result["artifacts"] = written
     result["metrics"] = {"model": model_name, "feature_dim_per_channel": dim,
+                         "loaded_checkpoints": {Path(k).parent.name + "/" + Path(k).name: v
+                                                for k, v in LOADED.items()},
                          "channels_embedded": len(channels),
                          "per_channel_models": bool(per_channel_ckpt)}
     result["message"] = (f"Embedded {len(channels)} channel(s) with {model_name}"

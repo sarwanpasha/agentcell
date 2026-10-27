@@ -62,11 +62,13 @@ def load_channel(tag, channel, csv_dir):
     return merged, keep
 
 
-def nn_accuracy(F, compound, moa, batch=None):
+def nn_accuracy(F, compound, moa, batch=None, queries=None):
     """1-NN cosine MoA accuracy. If batch given, NSCB (exclude same compound
     OR same batch); else NSC (exclude same compound)."""
     tally = []
     for i in range(len(compound)):
+        if queries is not None and not queries[i]:
+            continue
         if batch is None:
             mask = compound != compound[i]
         else:
@@ -88,6 +90,10 @@ def main():
                     help="plain concat or per-channel L2 before concat "
                          "(trades NSCB vs NSC)")
     ap.add_argument("--result-out", type=Path, default=None)
+    ap.add_argument("--split-file", default=None,
+                    help="JSON {'select': [compound,...], 'test': [compound,...]} for held-out scoring")
+    ap.add_argument("--query-set", choices=["all", "select", "test"], default="all",
+                    help="score only queries whose compound is in this half (neighbors come from all treatments)")
     args = ap.parse_args()
 
     result = {"tool": "score", "status": "error",
@@ -132,8 +138,13 @@ def main():
     else:  # plain
         concat = np.concatenate(blocks, axis=1)
 
-    nsc, n_nsc = nn_accuracy(concat, compound, moa)
-    nscb, n_nscb = nn_accuracy(concat, compound, moa, batch)
+    queries = None
+    if args.query_set != "all":
+        halves = json.loads(Path(args.split_file).read_text())
+        keep = set(str(c) for c in halves[args.query_set])
+        queries = np.array([str(c) in keep for c in compound])
+    nsc, n_nsc = nn_accuracy(concat, compound, moa, queries=queries)
+    nscb, n_nscb = nn_accuracy(concat, compound, moa, batch, queries=queries)
 
     result["status"] = "ok"
     result["metrics"] = {
@@ -142,6 +153,7 @@ def main():
         "feature_dim": int(concat.shape[1]),
         "n_treatments": int(concat.shape[0]),
         "channels_scored": present,
+        "query_set": args.query_set,
     }
     result["message"] = (f"Scored {concat.shape[0]} treatments at "
                          f"{concat.shape[1]}-dim ({'+'.join(present)}) with "

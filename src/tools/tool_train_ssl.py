@@ -99,6 +99,8 @@ def main():
     ap.add_argument("--channel", choices=["DAPI", "Tubulin", "Actin"], required=True)
     ap.add_argument("--epochs", type=int, default=400)
     ap.add_argument("--max-epochs", type=int, default=400)
+    ap.add_argument("--saveckp-freq", type=int, default=50,
+                    help="save a snapshot every N epochs (inline mode)")
     ap.add_argument("--data-root", default=os.environ.get("AGENTCELL_DATA", "./data/bbbc021_wsdino"))
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--ledger", default=None)
@@ -179,7 +181,7 @@ def main():
         # init checkpoint must be present in the output dir
         init_src = Path(REPO_DIR) / "pretrain_full_checkpoint.pth"
         (ch_outdir / "pretrain_full_checkpoint.pth").write_bytes(init_src.read_bytes())
-        cmd = ["/usr/bin/python", f"{REPO_DIR}/WS-DINO_BBBC021.py",
+        cmd = [sys.executable, f"{REPO_DIR}/WS-DINO_BBBC021.py",
                "--data_path", args.data_root + "/BBBC021_annotated_wsdino.csv",
                "--output_dir", str(ch_outdir),
                "--channel_index", str(CH_INDEX[args.channel]),
@@ -196,7 +198,7 @@ def main():
                "--global_crops_scale", "0.1", "0.2",
                "--local_crops_scale", "0.04", "0.08",
                "--local_crops_number", "8",
-               "--saveckp_freq", "50", "--num_workers", "8"]
+               "--saveckp_freq", str(args.saveckp_freq), "--num_workers", "8"]
         est_su = round(args.epochs * SU_PER_EPOCH, 2)
         ledger = read_ledger(args.ledger)
         if ledger["cumulative_su"] + est_su > args.run_su_budget:
@@ -204,13 +206,30 @@ def main():
                                  f"{ledger['cumulative_su']:.1f}+{est_su} > "
                                  f"{args.run_su_budget}")
             emit(result, args.result_out)
-        proc = subprocess.run(cmd, cwd=REPO_DIR, env=env)
+        # Optional training cache: a finished run with identical weak label, channel, epochs and
+        # seed (seed 0, the trainer default) is linked into the run directory instead of being
+        # retrained. The agent observes the same result envelope either way.
+        cache_root = os.environ.get("AGENTCELL_TRAIN_CACHE")
+        cached = None
+        if cache_root:
+            cand = (Path(cache_root) / f"{args.weak_label[0]}{args.epochs}_s0" /
+                    f"train_{args.channel}_{args.weak_label}")
+            if (cand / "DONE").exists():
+                cached = cand
+        if cached is not None:
+            for f in cached.glob(f"{args.channel}_weak_compound_DINO_checkpoint*.pth"):
+                dst = ch_outdir / f.name
+                if not dst.exists():
+                    os.link(f, dst)
+            proc = subprocess.CompletedProcess(cmd, 0)
+        else:
+            proc = subprocess.run(cmd, cwd=REPO_DIR, env=env)
         if proc.returncode != 0 or not ckpt.exists():
             result["message"] = (f"inline training failed (rc={proc.returncode}); "
                                  f"checkpoint {'present' if ckpt.exists() else 'missing'}")
             emit(result, args.result_out)
         ledger["cumulative_su"] = round(ledger["cumulative_su"] + est_su, 2)
-        ledger["jobs"].append({"mode": "inline", "channel": args.channel,
+        ledger["jobs"].append({"mode": "inline", "cached": cached is not None, "channel": args.channel,
                               "weak_label": args.weak_label,
                               "epochs": args.epochs, "est_su": est_su})
         write_ledger(args.ledger, ledger)
