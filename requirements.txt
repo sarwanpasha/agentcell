@@ -1,5 +1,5 @@
-# Python 3.9+. Versions pinned to match the environment used for the experiments.
-torch==2.5.1
+# Training and embedding environment. PyTorch 2.5.1 and 2.7 gave identical scores in this study.
+torch>=2.5.1
 torchvision
 timm
 numpy
