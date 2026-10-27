@@ -1,0 +1,15 @@
+pool,strategy,test_NSC_mean,test_NSC_q05,test_NSC_q95
+all labels,F1 vit plain,0.912,0.8372,0.9783
+all labels,F2 vit l2,0.9162,0.8462,0.9783
+all labels,agent config (compound100 l2),0.8848,0.7568,0.9773
+all labels,grid,0.934,0.8298,0.9792
+all labels,random k=3,0.9101,0.7907,0.9792
+all labels,random k=5,0.9176,0.8049,0.9792
+all labels,oracle on test,0.9744,0.9487,1.0
+without MoA label,F1 vit plain,0.9163,0.8462,0.9783
+without MoA label,F2 vit l2,0.9204,0.8537,0.9792
+without MoA label,agent config (compound100 l2),0.8921,0.7674,0.9787
+without MoA label,grid,0.884,0.7755,0.9545
+without MoA label,random k=3,0.8984,0.7826,0.9783
+without MoA label,random k=5,0.8913,0.7894,0.9767
+without MoA label,oracle on test,0.9668,0.9268,1.0

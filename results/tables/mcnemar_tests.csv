@@ -1,0 +1,19 @@
+comparison,only_first_correct,only_second_correct,P
+c100_s0 l2 vs untrained l2 NSC,4,8,0.3877
+c100_s0 l2 vs untrained l2 NSCB,6,4,0.75391
+c100_s0 plain vs untrained plain NSC,3,4,1.0
+c100_s0 plain vs untrained plain NSCB,12,9,0.66362
+c400_s0 l2 vs untrained l2 NSC,5,9,0.42395
+c400_s0 l2 vs untrained l2 NSCB,7,3,0.34375
+c100_s0 e1 l2 vs untrained l2 NSC,5,0,0.0625
+c100_s0 e1 l2 vs untrained l2 NSCB,3,0,0.25
+m20 l2 vs untrained l2 NSC,6,2,0.28906
+m20 l2 vs untrained l2 NSCB,7,2,0.17969
+m20 plain vs untrained plain NSC,7,1,0.07031
+m20 plain vs untrained plain NSCB,10,2,0.03857
+c20 l2 vs untrained l2 NSC,3,12,0.03516
+c20 l2 vs untrained l2 NSCB,2,4,0.6875
+L c100_s2 plain vs L untrained plain NSC,21,17,0.6271
+L c100_s2 plain vs L untrained plain NSCB,19,16,0.73588
+L vit vs L resnet plain NSC,15,7,0.1338
+L vit vs L resnet plain NSCB,15,8,0.21004

@@ -1,0 +1,19 @@
+configuration,cost_SU,NSC,NSCB
+vit 3ch plain,0.0,0.9126,0.7379
+vit 3ch l2,0.0,0.9223,0.6893
+vit DNA,0.0,0.8058,
+rn 3ch plain,0.0,0.9417,0.6699
+rn 3ch l2,0.0,0.9126,0.6602
+rn DNA,0.0,0.6893,
+compound20 plain,0.75,0.8544,0.699
+compound20 l2,0.75,0.835,0.6699
+compound100 plain,3.75,0.9029,0.767
+compound100 l2,3.75,0.8835,0.7087
+compound400 plain,15.0,0.9126,0.7864
+compound400 l2,15.0,0.8835,0.7282
+treatment20 plain,0.75,0.8835,0.7379
+treatment20 l2,0.75,0.8447,0.6796
+treatment100 plain,3.75,0.9126,0.7767
+treatment100 l2,3.75,0.8835,0.7282
+moa20 plain,0.75,0.9709,0.8155
+moa20 l2,0.75,0.9612,0.7379
