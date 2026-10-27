@@ -44,10 +44,10 @@ MODEL_DEFAULT = "deepseek-chat"
 TOOLS_DIR = os.environ.get("AGENTCELL_TOOLS", os.path.dirname(os.path.abspath(__file__)))
 REPO_DIR = os.environ.get("WSDINO_REPO", os.path.expanduser("~/WS-DINO"))
 DATA_ROOT = os.environ.get("AGENTCELL_DATA", "./data/bbbc021_wsdino")
-PY = "/usr/bin/python"
+PY = sys.executable
 
 
-SYSTEM_PROMPT = """You are an autonomous research agent. Your goal is to build a
+SYSTEM_PROMPT_TEMPLATE = """You are an autonomous research agent. Your goal is to build a
 cell-image mechanism-of-action (MoA) pipeline on the BBBC021 benchmark that
 maximizes NSC accuracy (also report NSCB). You operate real tools on a GPU
 cluster, one tool call per step, observing each structured JSON result and
@@ -78,17 +78,7 @@ TOOLS:
          normalization : "plain" | "per_channel_l2"
    Returns NSC and NSCB.
 
-CONTEXT YOU SHOULD USE:
-- An ImageNet ViT (no training) typically reaches ~0.91 NSC concatenated over
-  all three channels. ResNet50 is a weaker, non-morphology-specific baseline.
-- Training (WS-DINO) with the right weak label can push NSC toward ~0.97.
-- All three channels (DAPI, Tubulin, Actin) carry complementary MoA signal;
-  a single channel underuses it.
-- The concatenation normalization trades NSC against NSCB.
-- You have a limited SU training budget; spend it deliberately. Each step you
-  will be told your remaining budget.
-
-Reason scientifically. Establish baselines, form hypotheses, test them, compare
+{CONTEXT}Reason scientifically. Establish baselines, form hypotheses, test them, compare
 results, and converge on the best pipeline. Do not repeat an identical config.
 
 Respond with ONLY one JSON object, no markdown:
@@ -99,6 +89,36 @@ Respond with ONLY one JSON object, no markdown:
 }
 Declare "done" when you have a final best pipeline; in the thought, state the
 configuration and its NSC/NSCB."""
+
+CONTEXT_HINTS = """CONTEXT YOU SHOULD USE:
+- An ImageNet ViT (no training) typically reaches ~0.91 NSC concatenated over
+  all three channels. ResNet50 is a weaker, non-morphology-specific baseline.
+- Training (WS-DINO) with the right weak label can push NSC toward ~0.97.
+- All three channels (DAPI, Tubulin, Actin) carry complementary MoA signal;
+  a single channel underuses it.
+- The concatenation normalization trades NSC against NSCB.
+- You have a limited SU training budget; spend it deliberately. Each step you
+  will be told your remaining budget.
+
+"""
+
+SYSTEM_PROMPT = SYSTEM_PROMPT_TEMPLATE.replace("{CONTEXT}", CONTEXT_HINTS)
+
+EXTRA_TOOLS_DOC = """
+Optional embed args: weak_label (which trained models to use if you trained more than one
+weak label for a channel) and epoch (use the snapshot saved after that many epochs instead of
+the final model; available epochs are listed in the train_ssl observation).
+"""
+
+HELDOUT_DOC = """
+Scores are computed on a selection half of the compounds only. After you declare done, the
+harness scores your final configuration once on the other half. Name the final configuration in
+the args of the done action: {"tag": ..., "normalization": ...}.
+"""
+
+
+
+USAGE = []  # token usage returned by the planner API, one entry per call
 
 
 @dataclass
@@ -131,7 +151,7 @@ class Trace:
 
 
 def llm_plan(goal, trace, remaining_su, api_key, llm_model, temperature=0.0,
-             endpoint=DEEPSEEK_URL, timeout=300):
+             endpoint=DEEPSEEK_URL, timeout=300, system_prompt=None):
     idx = len(trace.steps)
     history = []
     for s in trace.steps[-10:]:
@@ -155,7 +175,7 @@ def llm_plan(goal, trace, remaining_su, api_key, llm_model, temperature=0.0,
     is_reasoning = any(llm_model.startswith(p) for p in
                        ("gpt-5", "o1", "o3", "o4"))
     payload = {"model": llm_model,
-               "messages": [{"role": "system", "content": SYSTEM_PROMPT},
+               "messages": [{"role": "system", "content": system_prompt or SYSTEM_PROMPT},
                             {"role": "user", "content": user}]}
     if is_reasoning:
         payload["max_completion_tokens"] = 3000
@@ -167,7 +187,9 @@ def llm_plan(goal, trace, remaining_su, api_key, llm_model, temperature=0.0,
     try:
         r = requests.post(endpoint, json=payload, headers=headers, timeout=timeout)
         r.raise_for_status()
-        content = r.json()["choices"][0]["message"]["content"].strip()
+        js = r.json()
+        content = js["choices"][0]["message"]["content"].strip()
+        USAGE.append(js.get("usage", {}))
     except Exception as e:
         return Step(idx, f"LLM call failed: {e}", "done", {})
     m = re.search(r"\{.*\}", content, re.DOTALL)
@@ -181,7 +203,49 @@ def llm_plan(goal, trace, remaining_su, api_key, llm_model, temperature=0.0,
                 p.get("args", {}) or {})
 
 
-def run_tool(step, trace, workdir, ledger_path, su_budget):
+def _run_json(cmd, env):
+    p = subprocess.run(cmd, cwd=REPO_DIR, env=env, capture_output=True, text=True, timeout=3600)
+    for line in p.stdout.strip().splitlines()[::-1]:
+        line = line.strip()
+        if line.startswith("{") and line.endswith("}"):
+            return json.loads(line)
+    return {"status": "error", "message": p.stderr[-300:]}
+
+
+def probe_checkpoints(step, workdir, env, opts):
+    """Single-channel NSC of the untrained encoder and of every saved snapshot of one training run.
+
+    This is the checkpoint-reporting tool: it lets the planner see how a channel's representation
+    changes during training. Scores use the selection half when a split file is given."""
+    ch = str(step.args.get("channel", "DAPI")); wl = str(step.args.get("weak_label", "compound"))
+    d = workdir / f"train_{ch}_{wl}"
+    eps = sorted(int(re.search(r"(\d{4})\.pth$", f.name).group(1)) + 1
+                 for f in d.glob(f"{ch}_weak_compound_DINO_checkpoint[0-9][0-9][0-9][0-9].pth"))
+    feat = workdir / "probe_features"; out = {}
+    score_extra = (["--split-file", opts["split_file"], "--query-set", "select"]
+                   if opts.get("split_file") else [])
+    for ep in [0] + eps + [None]:
+        tag = f"probe_{ch}_{wl}_" + ("imagenet" if ep == 0 else "final" if ep is None else f"e{ep}")
+        cmd = [PY, f"{TOOLS_DIR}/tool_embed.py", "--data-root", DATA_ROOT, "--single-channel", ch,
+               "--tag", tag, "--features-out", str(feat)]
+        if ep == 0:
+            cmd += ["--model", "vit_imagenet"]
+        else:
+            cmd += ["--model", "vit_trained", "--init-dir", str(workdir), "--weak-label", wl,
+                    "--run-train-artifacts", str(workdir / "earned.json")]
+            if ep is not None:
+                cmd += ["--epoch", str(ep)]
+        if _run_json(cmd, env).get("status") != "ok":
+            continue
+        r = _run_json([PY, f"{TOOLS_DIR}/tool_score.py", "--features-dir", str(feat), "--tag", tag,
+                       "--normalization", "plain"] + score_extra, env)
+        key = "untrained" if ep == 0 else "final" if ep is None else str(ep)
+        out[key] = r.get("metrics", {}).get("NSC")
+    return out
+
+
+def run_tool(step, trace, workdir, ledger_path, su_budget, opts=None):
+    opts = opts or {}
     t0 = time.time()
     env = dict(os.environ)
     if os.environ.get("PYTHONUSERBASE"):
@@ -200,9 +264,16 @@ def run_tool(step, trace, workdir, ledger_path, su_budget):
                "--result-out", str(workdir / f"embed_{step.idx}.json")]
         if model == "vit_trained":
             # per-channel checkpoints live under the run workdir in
-            # train_<CH>_<weak>/ subdirs; the tool auto-resolves each channel.
+            # train_<CH>_<weak>/ subdirs; the tool resolves each channel by exact name.
             cmd += ["--init-dir", str(workdir),
                     "--run-train-artifacts", str(workdir / "earned.json")]
+            if step.args.get("weak_label"):
+                cmd += ["--weak-label", str(step.args["weak_label"])]
+            if step.args.get("epoch") is not None:
+                cmd += ["--epoch", str(int(step.args["epoch"]))]
+                tag += f"_e{int(step.args['epoch'])}"
+                step.args["_tag"] = tag
+                cmd[cmd.index("--tag") + 1] = tag
     elif step.tool == "train_ssl":
         cmd = [PY, f"{TOOLS_DIR}/tool_train_ssl.py", "--inline",
                "--weak-label", str(step.args.get("weak_label", "compound")),
@@ -213,12 +284,17 @@ def run_tool(step, trace, workdir, ledger_path, su_budget):
                "--ledger", str(ledger_path),
                "--run-su-budget", str(su_budget),
                "--result-out", str(workdir / f"train_{step.idx}.json")]
+        if opts.get("report_checkpoints"):
+            ep = int(step.args.get("epochs", 400))
+            cmd += ["--saveckp-freq", str(max(1, ep // 10))]
     elif step.tool == "score":
         cmd = [PY, f"{TOOLS_DIR}/tool_score.py",
                "--features-dir", str(feat_dir),
                "--tag", str(step.args.get("tag", "")),
                "--normalization", str(step.args.get("normalization", "per_channel_l2")),
                "--result-out", str(workdir / f"score_{step.idx}.json")]
+        if opts.get("split_file"):
+            cmd += ["--split-file", opts["split_file"], "--query-set", "select"]
     else:
         step.status = "done"
         return step
@@ -246,6 +322,11 @@ def run_tool(step, trace, workdir, ledger_path, su_budget):
                 ck = res.get("artifacts", [])
                 trace.earned_ckpts.extend(ck)
                 (workdir / "earned.json").write_text(json.dumps(trace.earned_ckpts))
+                if opts.get("report_checkpoints"):
+                    probe = probe_checkpoints(step, workdir, env, opts)
+                    step.metrics["single_channel_NSC_by_epoch"] = probe
+                    step.observation = (step.observation + " | single-channel NSC of saved "
+                                        f"checkpoints (epoch: NSC): {json.dumps(probe)}")[:900]
         else:
             step.status = "error"
             step.observation = ("no parseable result; stderr tail: " + p.stderr[-300:])
@@ -273,6 +354,14 @@ def main():
                     help="env var holding the API key for --endpoint")
     ap.add_argument("--no-self-correct", action="store_true",
                     help="ablation: hide tool error detail from the agent")
+    ap.add_argument("--no-hints", action="store_true",
+                    help="ablation: remove the CONTEXT block (domain hints) from the prompt")
+    ap.add_argument("--split-file", default=None,
+                    help="held-out mode: the agent sees scores on the selection half only; the final "
+                         "configuration is scored once on the test half")
+    ap.add_argument("--report-checkpoints", action="store_true",
+                    help="after each training, report single-channel NSC of saved snapshots and "
+                         "let embed use a snapshot (epoch argument)")
     args = ap.parse_args()
 
     api_key = os.environ.get(args.api_key_env)
@@ -291,17 +380,25 @@ def main():
           f"temp={args.temperature} endpoint={args.endpoint}")
     print(f"trace -> {trace_path}\n", flush=True)
 
+    prompt = SYSTEM_PROMPT_TEMPLATE.replace("{CONTEXT}", "" if args.no_hints else CONTEXT_HINTS)
+    if args.report_checkpoints:
+        prompt = prompt.replace("Respond with ONLY", EXTRA_TOOLS_DOC.strip() + "\n\nRespond with ONLY")
+    if args.split_file:
+        prompt = prompt.replace("Respond with ONLY", HELDOUT_DOC.strip() + "\n\nRespond with ONLY")
+    (args.workdir / "system_prompt.txt").write_text(prompt)
+    opts = {"split_file": args.split_file, "report_checkpoints": args.report_checkpoints}
     best = {"nsc": -1, "info": None}
     for _ in range(args.budget):
         ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {"cumulative_su": 0}
         remaining = args.su_budget - ledger.get("cumulative_su", 0)
         step = llm_plan(args.goal, trace, remaining, api_key, args.llm_model,
-                        temperature=args.temperature, endpoint=args.endpoint)
+                        temperature=args.temperature, endpoint=args.endpoint,
+                        system_prompt=prompt)
         if step.tool == "done":
             trace.steps.append(step)
             print(f"[{step.idx}] DONE: {step.thought}", flush=True)
             break
-        step = run_tool(step, trace, args.workdir, ledger_path, args.su_budget)
+        step = run_tool(step, trace, args.workdir, ledger_path, args.su_budget, opts)
         trace.steps.append(step)
         trace.dump(trace_path)
         nsc = step.metrics.get("NSC")
@@ -313,6 +410,32 @@ def main():
               f"NSCB={step.metrics.get('NSCB')} ({step.duration_s}s)", flush=True)
         print(f"      thought: {step.thought}", flush=True)
 
+    final = {}
+    last = trace.steps[-1] if trace.steps else None
+    if last is not None and last.tool == "done":
+        final["declared"] = last.args
+    if args.split_file:
+        # Score the declared final configuration (or the best selection-half score) on the test half.
+        cfg = final.get("declared") or {}
+        if not cfg.get("tag") and best["info"]:
+            cfg = {"tag": best["info"].get("tag"), "normalization": best["info"].get("normalization")}
+        if cfg.get("tag"):
+            env = dict(os.environ)
+            res = {}
+            for qs in ("test", "all"):
+                r = _run_json([PY, f"{TOOLS_DIR}/tool_score.py", "--features-dir", str(args.workdir / "features"),
+                               "--tag", str(cfg["tag"]), "--normalization",
+                               str(cfg.get("normalization", "per_channel_l2")),
+                               "--split-file", args.split_file, "--query-set", qs], env)
+                res[qs] = r.get("metrics", {})
+            final["heldout"] = {"config": cfg, **res}
+    ledger = json.loads(ledger_path.read_text()) if ledger_path.exists() else {"cumulative_su": 0}
+    final["su_spent"] = ledger.get("cumulative_su", 0)
+    final["planner_usage"] = {"calls": len(USAGE),
+                              "prompt_tokens": sum(u.get("prompt_tokens", 0) for u in USAGE),
+                              "completion_tokens": sum(u.get("completion_tokens", 0) for u in USAGE),
+                              "per_call": USAGE}
+    (args.workdir / "final.json").write_text(json.dumps(final, indent=1))
     trace.dump(trace_path)
     print(f"\n{'='*60}\nBest NSC: {best['nsc']}  (NSCB={best.get('nscb')})  "
           f"config={best['info']}\nTrace: {trace_path}", flush=True)
