@@ -1,0 +1,6 @@
+gh_vit_imagenet_um vit_imagenet 0 0 0 sys um
+gh_vit_imagenet_cp vit_imagenet 0 0 0 sys cp
+gh_sys_um_s0 compound 100 0 10 sys um
+gh_sys_um_s1 compound 100 1 10 sys um
+gh_sys_cp_s0 compound 100 0 10 sys cp
+gh_sys_cp_s1 compound 100 1 10 sys cp

@@ -1,0 +1,24 @@
+ds_t0_r1|--llm-model deepseek-chat --temperature 0
+ds_t0_r2|--llm-model deepseek-chat --temperature 0
+ds_t0_r3|--llm-model deepseek-chat --temperature 0
+ds_t07_r1|--llm-model deepseek-chat --temperature 0.7
+ds_t07_r2|--llm-model deepseek-chat --temperature 0.7
+ds_t07_r3|--llm-model deepseek-chat --temperature 0.7
+gpt_r1|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY
+gpt_r2|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY
+gpt_r3|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY
+gpt_r4|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY
+gpt_r5|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY
+ds_nohint_r1|--llm-model deepseek-chat --temperature 0.7 --no-hints
+ds_nohint_r2|--llm-model deepseek-chat --temperature 0.7 --no-hints
+ds_nohint_r3|--llm-model deepseek-chat --temperature 0.7 --no-hints
+gpt_nohint_r1|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY --no-hints
+gpt_nohint_r2|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY --no-hints
+ds_held_r1|--llm-model deepseek-chat --temperature 0.7 --split-file SPLITFILE
+ds_held_r2|--llm-model deepseek-chat --temperature 0.7 --split-file SPLITFILE
+ds_held_r3|--llm-model deepseek-chat --temperature 0.7 --split-file SPLITFILE
+ds_heldck_r1|--llm-model deepseek-chat --temperature 0.7 --split-file SPLITFILE --report-checkpoints
+ds_heldck_r2|--llm-model deepseek-chat --temperature 0.7 --split-file SPLITFILE --report-checkpoints
+ds_heldck_r3|--llm-model deepseek-chat --temperature 0.7 --split-file SPLITFILE --report-checkpoints
+gpt_heldck_r1|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY --split-file SPLITFILE --report-checkpoints
+gpt_heldck_r2|--endpoint https://api.openai.com/v1/chat/completions --llm-model gpt-5.5 --api-key-env OPENAI_API_KEY --split-file SPLITFILE --report-checkpoints
